@@ -1406,7 +1406,7 @@ defmodule Anubis.Client do
       GenServer.reply(waiter, {:error, Error.transport(:client_terminated, %{reason: reason})})
     end
 
-    Cache.cleanup(state.client_info["name"])
+    Cache.cleanup(state.tool_validators_table)
 
     state.transport.layer.shutdown(state.transport.name)
   end
@@ -1527,10 +1527,9 @@ defmodule Anubis.Client do
     response = %{response | method: request.method}
     elapsed_ms = Request.elapsed_time(request)
 
-    client = state.client_info["name"]
     structured = result["structuredContent"]
     tool = request.params["name"]
-    validator = Cache.get_tool_validator(client, tool)
+    validator = Cache.get_tool_validator(state.tool_validators_table, tool)
 
     if is_map(structured) and is_function(validator, 1) do
       case validator.(structured) do
@@ -1572,9 +1571,8 @@ defmodule Anubis.Client do
 
     if method == "tools/list" do
       tools = response.result["tools"]
-      client = state.client_info["name"]
-      Cache.clear_tool_validators(client)
-      Cache.put_tool_validators(client, tools)
+      Cache.clear_tool_validators(state.tool_validators_table)
+      Cache.put_tool_validators(state.tool_validators_table, tools)
     end
 
     if method == "ping",
