@@ -3,25 +3,35 @@ defmodule Anubis.Client.Cache do
 
   alias Anubis.Client.JSONSchemaConverter
 
-  @tool_validators_suffix "_tool_validators"
+  @type table :: :ets.table()
 
   # Public API
+
+  @doc """
+  Creates a per-client cache table and returns its reference.
+
+  The table is anonymous (no `:named_table`) and `:private`, so it is
+  owned solely by the calling process and can never collide with the
+  table of another client that happens to share a `client_info["name"]`.
+  Owned tables are reclaimed automatically when the owner process dies.
+  """
+  @spec new :: table()
+  def new do
+    :ets.new(:anubis_tool_validators, [:private, :set, read_concurrency: true])
+  end
 
   @doc """
   Stores tool output validators in the cache.
   Clears existing validators before storing new ones.
   """
-  @spec put_tool_validators(client_name :: String.t(), tools :: list(map())) :: :ok
-  def put_tool_validators(client, tools) when is_binary(client) and is_list(tools) do
-    table_name = tool_validators_table(client)
-    ensure_table(table_name)
-
-    :ets.delete_all_objects(table_name)
+  @spec put_tool_validators(table(), tools :: list(map())) :: :ok
+  def put_tool_validators(table, tools) when is_list(tools) do
+    :ets.delete_all_objects(table)
 
     tools
     |> Enum.filter(& &1["outputSchema"])
     |> Enum.flat_map(&fetch_tool_validator/1)
-    |> then(&:ets.insert(table_name, &1))
+    |> then(&:ets.insert(table, &1))
 
     :ok
   end
@@ -36,13 +46,10 @@ defmodule Anubis.Client.Cache do
   @doc """
   Gets a tool output validator from the cache.
   """
-  @spec get_tool_validator(client_name :: String.t(), tool_name :: String.t()) ::
+  @spec get_tool_validator(table(), tool_name :: String.t()) ::
           JSONSchemaConverter.validator() | nil
-  def get_tool_validator(client, tool_name) when is_binary(client) and is_binary(tool_name) do
-    table_name = tool_validators_table(client)
-    ensure_table(table_name)
-
-    case :ets.lookup(table_name, tool_name) do
+  def get_tool_validator(table, tool_name) when is_binary(tool_name) do
+    case :ets.lookup(table, tool_name) do
       [{^tool_name, validator}] -> validator
       [] -> nil
     end
@@ -51,53 +58,19 @@ defmodule Anubis.Client.Cache do
   @doc """
   Clears all tool validators from the cache.
   """
-  @spec clear_tool_validators(client_name :: String.t()) :: :ok
-  def clear_tool_validators(client) when is_binary(client) do
-    table_name = tool_validators_table(client)
-
-    case :ets.whereis(table_name) do
-      :undefined ->
-        :ok
-
-      _ ->
-        :ets.delete_all_objects(table_name)
-        :ok
-    end
+  @spec clear_tool_validators(table()) :: :ok
+  def clear_tool_validators(table) do
+    :ets.delete_all_objects(table)
+    :ok
   end
 
   @doc """
-  Cleans up all cache tables for a client process.
-  Should be called when the client process terminates.
+  Deletes the cache table. Should be called when the client process
+  terminates (owned tables are also reclaimed automatically on exit).
   """
-  @spec cleanup(client_name :: String.t()) :: :ok
-  def cleanup(client) when is_binary(client) do
-    table_name = tool_validators_table(client)
-
-    case :ets.whereis(table_name) do
-      :undefined ->
-        :ok
-
-      _ ->
-        :ets.delete(table_name)
-        :ok
-    end
-  end
-
-  # Private helpers
-
-  @spec ensure_table(table :: atom) :: :ok
-  defp ensure_table(table) when is_atom(table) do
-    case :ets.whereis(table) do
-      :undefined ->
-        :ets.new(table, [:named_table, :private, :set, read_concurrency: true])
-        :ok
-
-      _ ->
-        :ok
-    end
-  end
-
-  defp tool_validators_table(client) do
-    String.to_atom("anubis_client_#{client}#{@tool_validators_suffix}")
+  @spec cleanup(table()) :: :ok
+  def cleanup(table) do
+    if :ets.info(table) != :undefined, do: :ets.delete(table)
+    :ok
   end
 end

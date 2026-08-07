@@ -2,6 +2,7 @@ defmodule Anubis.Client.State do
   @moduledoc false
 
   alias Anubis.Client
+  alias Anubis.Client.Cache
   alias Anubis.Client.Operation
   alias Anubis.Client.Request
   alias Anubis.MCP.Error
@@ -25,7 +26,8 @@ defmodule Anubis.Client.State do
             | nil,
           roots: %{String.t() => Client.root()},
           ready_waiters: [GenServer.from()],
-          transport_parse_state: map | nil
+          transport_parse_state: map | nil,
+          tool_validators_table: :ets.table()
         }
 
   defstruct [
@@ -43,7 +45,8 @@ defmodule Anubis.Client.State do
     elicitation_callback: nil,
     roots: %{},
     ready_waiters: [],
-    transport_parse_state: nil
+    transport_parse_state: nil,
+    tool_validators_table: nil
   ]
 
   @spec new(map()) :: t()
@@ -54,7 +57,8 @@ defmodule Anubis.Client.State do
       protocol_version: opts.protocol_version,
       transport: opts.transport,
       timeout: opts.timeout,
-      transport_parse_state: opts[:transport_parse_state]
+      transport_parse_state: opts[:transport_parse_state],
+      tool_validators_table: Cache.new()
     }
   end
 
